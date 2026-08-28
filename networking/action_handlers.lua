@@ -233,6 +233,13 @@ local function action_error(p)
 	local message = p.message
 	sendWarnMessage(message, "MULTIPLAYER")
 
+	-- Suppress "Failed to connect" popup during LAN creation — lan_browser shows its own help
+	if MP.LAN and (MP.LAN._creating or MP.LAN._suppress_error) then
+		if message and message:find("Failed to connect") then
+			sendDebugMessage("Suppressed LAN connect error: " .. message, "MULTIPLAYER")
+			return
+		end
+	end
 	MP.UI.UTILS.overlay_message(message)
 end
 

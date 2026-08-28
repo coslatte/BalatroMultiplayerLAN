@@ -52,6 +52,19 @@ function G.UIDEF.override_main_menu_play_button()
 					button = "setup_practice_mode",
 					minw = 5,
 				}),
+				UIBox_button({
+					label = { "Host LAN" },
+					colour = G.C.GREEN,
+					button = "lan_host_menu",
+					minw = 5,
+				}),
+				UIBox_button({
+					label = { "Join LAN" },
+					colour = G.C.ORANGE,
+					button = "lan_join_menu",
+					minw = 5,
+					minh = 0.7,
+				}),
 				MP.LOBBY.connected and UIBox_button({
 					label = { localize("b_create_lobby") },
 					colour = G.C.GREEN,

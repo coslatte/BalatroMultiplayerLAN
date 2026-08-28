@@ -315,6 +315,7 @@ SMODS.Atlas({
 MP.load_mp_dir("compatibility")
 
 MP.load_mp_file("networking/action_handlers.lua")
+MP.load_mp_file("networking/lan.lua")
 
 MP.load_mp_dir("gamemodes")
 MP.load_mp_dir("layers")
