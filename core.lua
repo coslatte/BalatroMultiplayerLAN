@@ -343,13 +343,23 @@ MP.load_mp_dir("objects/boosters")
 MP.load_mp_dir("objects/challenges")
 
 local SOCKET = MP.load_mp_file("networking/socket.lua")
-MP.NETWORKING_THREAD = love.thread.newThread(SOCKET)
-local server_url = MP.ENV.server_url or SMODS.Mods["Multiplayer"].config.server_url
-local server_port = tonumber(MP.ENV.server_port) or SMODS.Mods["Multiplayer"].config.server_port
-sendInfoMessage(
-	string.format("Connecting to %s:%s", tostring(server_url), tostring(server_port)),
-	"MULTIPLAYER"
-)
-MP.LAN._thread_gen = 1
-MP.NETWORKING_THREAD:start(server_url, server_port, MP.LAN._thread_gen)
-MP.ACTIONS.connect()
+
+-- Function to start the networking thread (for Online mode)
+function MP.start_networking_thread()
+	if MP.NETWORKING_THREAD then return end
+	MP.NETWORKING_THREAD = love.thread.newThread(SOCKET)
+	local server_url = MP.ENV.server_url or SMODS.Mods["Multiplayer"].config.server_url
+	local server_port = tonumber(MP.ENV.server_port) or SMODS.Mods["Multiplayer"].config.server_port
+	sendInfoMessage(
+		string.format("Connecting to %s:%s", tostring(server_url), tostring(server_port)),
+		"MULTIPLAYER"
+	)
+	MP.LAN._thread_gen = 1
+	MP.NETWORKING_THREAD:start(server_url, server_port, MP.LAN._thread_gen)
+	MP.ACTIONS.connect()
+end
+
+-- Only auto-start networking if UI mode is Online (not LAN)
+if MP.LAN.get_ui_mode() == "online" then
+	MP.start_networking_thread()
+end

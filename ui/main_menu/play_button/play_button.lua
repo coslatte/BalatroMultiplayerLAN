@@ -4,7 +4,11 @@ function G.FUNCS.toggle_lan_mode(e)
 	MP.LAN.set_ui_mode(nxt)
 	-- Limpiar estado de red al cambiar de dominio para no mezclar Online<->LAN
 	if nxt == "online" then
-		-- Salir de modo LAN: detener advertise/discovery y restaurar online si estaba en IP LAN
+		-- Salir de modo LAN: dejar lobby offline primero (si está en uno) para limpiar estado
+		if MP.LAN._offline and MP.LOBBY.code then
+			pcall(function() MP.LAN.leave_offline_lobby() end)
+		end
+		-- Luego detener advertise/discovery y restaurar online si estaba en IP LAN
 		pcall(function() MP.LAN.stop() end)
 		if MP.SERVER and MP.SERVER.is_running() then MP.SERVER.stop() end
 		-- Si el server_url es una IP LAN, volver al online por defecto
@@ -13,10 +17,24 @@ function G.FUNCS.toggle_lan_mode(e)
 			MP.LAN.restore_online_server()
 			MP.LAN.connect_to_host("balatro.virtualized.dev", 8788)
 		end
+		-- Iniciar hilo de red para modo Online
+		if not MP.NETWORKING_THREAD then
+			MP.start_networking_thread()
+		end
 	else
 		-- Entrar a LAN: asegurar discovery detenido hasta que el usuario elija Host/Join
 		pcall(function() MP.LAN.stop() end)
 		if MP.SERVER and MP.SERVER.is_running() then MP.SERVER.stop() end
+		-- Detener hilo de red si existe (modo LAN no lo usa)
+		if MP.NETWORKING_THREAD then
+			pcall(function()
+				local quit_ack = love.thread.getChannel("mpThreadQuitAck")
+				while quit_ack:pop() ~= nil do end
+				love.thread.getChannel("uiToNetwork"):push("__MP_THREAD_QUIT__" .. tostring(MP.LAN._thread_gen or 1))
+				quit_ack:demand(0.5)
+			end)
+			MP.NETWORKING_THREAD = nil
+		end
 	end
 	if G.STAGE == G.STAGES.MAIN_MENU then
 		if G.OVERLAY_MENU then G.FUNCS.exit_overlay_menu() end
@@ -103,7 +121,6 @@ function G.UIDEF.override_main_menu_play_button()
 					colour = G.C.ORANGE,
 					button = "lan_join_menu",
 					minw = 5,
-					minh = 0.7,
 				}) or nil,
 				-- Online group
 				not is_lan and MP.LOBBY.connected and UIBox_button({

@@ -386,6 +386,10 @@ function G.FUNCS.lan_refresh(e)
 end
 
 function G.FUNCS.lan_use_online(e)
+	-- Leave offline LAN lobby first (if in one) to clean up state before switching
+	if MP.LAN._offline and MP.LOBBY.code then
+		pcall(function() MP.LAN.leave_offline_lobby() end)
+	end
 	if MP.SERVER and MP.SERVER.is_running() then MP.SERVER.stop() end
 	MP.LAN.restore_online_server()
 	MP.LAN.set_discover_callback(nil)

@@ -26,7 +26,7 @@ function MP.LAN.get_ui_mode()
 	if cfg and (cfg.lan_ui_mode == "lan" or cfg.lan_ui_mode == "online") then
 		return cfg.lan_ui_mode
 	end
-	return "online"
+	return "lan"
 end
 function MP.LAN.set_ui_mode(mode)
 	if mode ~= "lan" and mode ~= "online" then return end
@@ -332,7 +332,10 @@ function MP.LAN.connect_to_host(ip, port)
 	MP.ENV.server_port = tostring(server_port)
 
 	-- Restart networking thread with new endpoint
-	MP.LAN.restart_networking(server_url, server_port)
+	local ok, err = MP.LAN.restart_networking(server_url, server_port)
+	if not ok then
+		return false, err or "failed to restart networking"
+	end
 	return true
 end
 
