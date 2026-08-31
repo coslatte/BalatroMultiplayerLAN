@@ -2,7 +2,12 @@
 -- Mirrors balatromp-local-phone's NetworkUtils + config injection, but for LÖVE/luasocket.
 
 MP.LAN = MP.LAN or {}
-MP.LAN.BROADCAST_PORT = 8789
+MP.LAN.BROADCAST_PORT = (SMODS
+		and SMODS.Mods
+		and SMODS.Mods["Multiplayer"]
+		and SMODS.Mods["Multiplayer"].config
+		and tonumber(SMODS.Mods["Multiplayer"].config.lan_broadcast_port))
+	or 8789
 -- Use whatever port the mod is configured to use (8766 in user's case) instead of hard-coding
 local function lan_cfg_port()
 	if SMODS and SMODS.Mods and SMODS.Mods["Multiplayer"] and SMODS.Mods["Multiplayer"].config and SMODS.Mods["Multiplayer"].config.server_port then
@@ -331,13 +336,22 @@ function MP.LAN.restore_online_server()
 end
 
 function MP.LAN.restart_networking(server_url, server_port)
-	-- Tear down old thread if running
+	-- Replace the client thread. LÖVE threads can't be killed, so ask the old
+	-- one to go inert via a quit sentinel (see networking/socket.lua): two live
+	-- threads would both pop the uiToNetwork channel and split outgoing
+	-- messages between a dead socket and the new one. Generation matching in
+	-- the sentinel makes this safe even when the old thread is blocked inside
+	-- a connect/sleep and cannot ack in time — it will honor the sentinel
+	-- before touching any message queued after it.
+	MP.LAN._thread_gen = (MP.LAN._thread_gen or 1) + 1
 	if MP.NETWORKING_THREAD then
-		pcall(function()
-			if MP.NETWORKING_THREAD.isRunning and MP.NETWORKING_THREAD:isRunning() then
-				-- LÖVE threads can't be killed cleanly; just abandon and start new one
-			end
-		end)
+		local quit_ack = love.thread.getChannel("mpThreadQuitAck")
+		while quit_ack:pop() ~= nil do end -- clear stale acks
+		love.thread
+			.getChannel("uiToNetwork")
+			:push("__MP_THREAD_QUIT__" .. tostring(MP.LAN._thread_gen))
+		-- Best-effort confirmation: the old thread normally pops within ~50ms
+		quit_ack:demand(0.5)
 	end
 	-- Need SOCKET chunk from networking/socket.lua
 	local SOCKET = MP.load_mp_file and MP.load_mp_file("networking/socket.lua")
@@ -349,7 +363,7 @@ function MP.LAN.restart_networking(server_url, server_port)
 	if not SOCKET then return false, "socket chunk not found" end
 	local ok, thread_or_err = pcall(function()
 		MP.NETWORKING_THREAD = love.thread.newThread(SOCKET)
-		MP.NETWORKING_THREAD:start(server_url, server_port)
+		MP.NETWORKING_THREAD:start(server_url, server_port, MP.LAN._thread_gen)
 		if MP.ACTIONS and MP.ACTIONS.connect then MP.ACTIONS.connect() end
 	end)
 	if not ok then return false, tostring(thread_or_err) end

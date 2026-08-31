@@ -149,6 +149,21 @@ function G.UIDEF.create_UIBox_lan_join()
 				MP.LAN.connect_to_host(entry.ip, entry.port)
 				G.FUNCS.exit_overlay_menu()
 				MP.UI.UTILS.overlay_message("Connecting to " .. entry.ip .. ":" .. entry.port)
+				-- Auto-join by room code once the connection to the host lands
+				if entry.code and entry.code ~= "" then
+					G.E_MANAGER:add_event(Event({
+						trigger = "after",
+						delay = 1.0,
+						blockable = false,
+						blocking = false,
+						func = function()
+							if not MP.LOBBY.code and MP.LOBBY.connected then
+								MP.ACTIONS.join_lobby(entry.code)
+							end
+							return true
+						end,
+					}))
+				end
 			end
 			table.insert(nodes, {
 				n = G.UIT.R, config = { align = "cm", padding = 0.08 },
@@ -221,6 +236,13 @@ function G.FUNCS.lan_create_lobby(e)
 
 	MP.LAN.start_host_advertise()
 	MP.LAN._host_ip = ip or hint
+	-- Host the embedded LAN relay (full online-server parity, see
+	-- networking/server/) so this client — via 127.0.0.1 — and the guest — via
+	-- this device's LAN IP — both play through a real server
+	local srv_ok, srv_err = MP.SERVER.start(port)
+	if not srv_ok then
+		sendWarnMessage("LAN server: " .. tostring(srv_err) .. " — offline lobby fallback", "MULTIPLAYER")
+	end
 	MP.LAN._creating = true
 	MP.LAN._suppress_error = true
 	MP.LAN.connect_to_host(host_self_ip, port)
@@ -293,6 +315,10 @@ function G.FUNCS.lan_create_manual(e)
 	local port = MP.LAN.get_default_port()
 	MP.LAN.start_host_advertise()
 	MP.LAN._host_ip = ip
+	local srv_ok, srv_err = MP.SERVER.start(port)
+	if not srv_ok then
+		sendWarnMessage("LAN server: " .. tostring(srv_err) .. " — offline lobby fallback", "MULTIPLAYER")
+	end
 	MP.LAN._creating = true
 	MP.LAN._suppress_error = true
 	MP.LAN.connect_to_host("127.0.0.1", port)
@@ -318,34 +344,86 @@ function G.FUNCS.lan_join_manual(e)
 		MP.UI.UTILS.overlay_message("Enter host IP first")
 		return
 	end
-	-- allow code+ip combo? if user pasted code, try join by code
+	local port = MP.LAN.get_default_port()
+
+	-- Room code: prefer resolving the host through discovery and connecting to
+	-- it directly; join through the existing connection when we are already
+	-- talking to that host's server
 	if ip:match("^[A-Za-z]+$") and #ip <= 6 then
+		local code = ip:upper()
+		local target_ip = nil
+		for _, d in ipairs(MP.LAN.get_discovered()) do
+			if d.code and d.code == code then
+				target_ip = d.ip
+				break
+			end
+		end
 		MP.LAN.set_discover_callback(nil)
-		MP.ACTIONS.join_lobby(ip:upper())
-		G.FUNCS.exit_overlay_menu()
+		local already_connected = MP.LOBBY.connected and MP.ENV and MP.ENV.server_url == target_ip
+		if target_ip and not already_connected then
+			MP.LAN.connect_to_host(target_ip, port)
+			G.FUNCS.exit_overlay_menu()
+			G.E_MANAGER:add_event(Event({
+				trigger = "after",
+				delay = 1.0,
+				blockable = false,
+				blocking = false,
+				func = function()
+					if not MP.LOBBY.code and MP.LOBBY.connected then
+						MP.ACTIONS.join_lobby(code)
+					end
+					return true
+				end,
+			}))
+		else
+			MP.ACTIONS.join_lobby(code)
+			G.FUNCS.exit_overlay_menu()
+		end
 		return
 	end
+
 	if not ip:match("^%d+%.%d+%.%d+%.%d+$") and ip ~= "localhost" and not ip:match("%.") then
 		MP.UI.UTILS.overlay_message("Invalid IP: " .. ip)
 		return
 	end
-	local port = MP.LAN.get_default_port()
 	MP.LAN.set_discover_callback(nil)
 	MP.LAN._manual_ip = ip
 	-- try real server first; if offline, fallback will create local lobby
 	MP.LAN.connect_to_host(ip, port)
 	G.FUNCS.exit_overlay_menu()
-	-- wait a moment then try offline join if not connected
-	G.E_MANAGER:add_event(Event({ trigger = "after", delay = 1.0, blockable = false, blocking = false, func = function()
-		if not MP.LOBBY.code then
-			-- try offline join via discovered code or ip
+	-- wait a moment: auto-join by discovered code, ask for the code, or fall back
+	G.E_MANAGER:add_event(Event({
+		trigger = "after",
+		delay = 1.0,
+		blockable = false,
+		blocking = false,
+		func = function()
+			if MP.LOBBY.code then
+				return true -- already in a lobby
+			end
+			if MP.LOBBY.connected then
+				local code = nil
+				for _, d in ipairs(MP.LAN.get_discovered()) do
+					if d.ip == ip and d.code and d.code ~= "" then
+						code = d.code
+						break
+					end
+				end
+				if code then
+					MP.ACTIONS.join_lobby(code)
+				else
+					-- Connected to the host's server: ask for the room code
+					MP.UI.UTILS.overlay_message("Connected to " .. ip .. " — enter the room code")
+					G.FUNCS.join_lobby(e)
+				end
+				return true
+			end
+			-- Host unreachable: offline fallback
 			MP.LAN.join_offline_lobby(nil, ip, port)
 			MP.UI.UTILS.overlay_message("Joined LAN lobby offline: " .. (MP.LOBBY.code or ""))
-		else
-			MP.UI.UTILS.overlay_message("Connecting to " .. ip .. ":" .. port)
-		end
-		return true
-	end }))
+			return true
+		end,
+	}))
 end
 
 function G.FUNCS.lan_refresh(e)
@@ -355,6 +433,7 @@ function G.FUNCS.lan_refresh(e)
 end
 
 function G.FUNCS.lan_use_online(e)
+	if MP.SERVER and MP.SERVER.is_running() then MP.SERVER.stop() end
 	MP.LAN.restore_online_server()
 	MP.LAN.set_discover_callback(nil)
 	MP.LAN.connect_to_host("balatro.virtualized.dev", MP.LAN.get_default_port())
@@ -362,12 +441,8 @@ function G.FUNCS.lan_use_online(e)
 	MP.UI.UTILS.overlay_message("Switched to online server")
 end
 
--- keep legacy second-overlay func for compat (no longer used, but prevent nil)
-function G.FUNCS.lan_host_manual_ip(e)
-	-- now inline in main host screen, just reopen host menu
-	G.FUNCS.lan_host_menu(e)
-	MP.UI.UTILS.overlay_message("Escribe el IP arriba y dale Use Manual IP & Create")
-end
+-- keep legacy alias for compat (no longer bound to a button)
+G.FUNCS.lan_host_manual_ip_legacy = G.FUNCS.lan_host_manual_ip
 
 -- Ensure LAN stops advertising when lobby is left or game ends
 local _orig_lobby_leave = G.FUNCS.lobby_leave

@@ -316,6 +316,9 @@ MP.load_mp_dir("compatibility")
 
 MP.load_mp_file("networking/action_handlers.lua")
 MP.load_mp_file("networking/lan.lua")
+MP.load_mp_file("networking/server/lobby.lua")
+MP.load_mp_file("networking/server/handlers.lua")
+MP.load_mp_file("networking/server/init.lua")
 
 MP.load_mp_dir("gamemodes")
 MP.load_mp_dir("layers")
@@ -347,5 +350,6 @@ sendInfoMessage(
 	string.format("Connecting to %s:%s", tostring(server_url), tostring(server_port)),
 	"MULTIPLAYER"
 )
-MP.NETWORKING_THREAD:start(server_url, server_port)
+MP.LAN._thread_gen = 1
+MP.NETWORKING_THREAD:start(server_url, server_port, MP.LAN._thread_gen)
 MP.ACTIONS.connect()

@@ -3,7 +3,8 @@
 -- Since threads run on a separate lua environment, we need to require
 -- the necessary modules again
 return [[
-local CONFIG_URL, CONFIG_PORT = ...
+local CONFIG_URL, CONFIG_PORT, THREAD_GEN = ...
+local MY_GEN = tonumber(THREAD_GEN) or 1
 
 require("love.filesystem")
 local json = require("json")
@@ -34,6 +35,20 @@ local isSocketClosed = true
 local hasGivenUp = false -- true after all reconnect attempts failed
 local networkToUiChannel = love.thread.getChannel("networkToUi")
 local uiToNetworkChannel = love.thread.getChannel("uiToNetwork")
+
+-- LAN thread replacement: when the networking thread is restarted (LAN mode
+-- switches the endpoint), the old thread is asked to go inert via a quit
+-- sentinel. Two live threads would both pop uiToNetwork and split outgoing
+-- messages between a dead socket and the new one. The sentinel carries the
+-- generation of the replacement thread; a thread only quits for a generation
+-- newer than its own.
+local QUIT_PREFIX = "__MP_THREAD_QUIT__"
+local function quit_sentinel_for_me(msg)
+	if type(msg) ~= "string" then return false end
+	if msg:sub(1, #QUIT_PREFIX) ~= QUIT_PREFIX then return false end
+	local gen = tonumber(msg:sub(#QUIT_PREFIX + 1))
+	return gen == nil or gen > MY_GEN
+end
 
 -- Reconnection settings
 local maxReconnectAttempts = 3
@@ -78,6 +93,11 @@ function Networking.tryReconnect()
 	for attempt = 1, maxReconnectAttempts do
 		local delay = reconnectDelays[attempt] or reconnectDelays[#reconnectDelays]
 		SEND_THREAD_DEBUG_MESSAGE(string.format("Reconnect attempt %d/%d in %ds...", attempt, maxReconnectAttempts, delay))
+		-- Abort reconnecting if a replacement thread already took over
+		if quit_sentinel_for_me(uiToNetworkChannel:peek()) then
+			SEND_THREAD_DEBUG_MESSAGE("Replacement thread detected, abandoning reconnection.")
+			return false
+		end
 		socket.sleep(delay)
 
 		if Networking.connect() then
@@ -99,6 +119,18 @@ local mainThreadMessageQueue = function()
 		for _ = 1, requestsPerCycle do
 			local msg = uiToNetworkChannel:pop()
 			if msg then
+				if quit_sentinel_for_me(msg) then
+					-- We are obsolete: close up and go inert. Returning ends
+					-- this coroutine, so this thread never touches the
+					-- uiToNetwork channel again.
+					if Networking.Client then
+						pcall(function() Networking.Client:close() end)
+					end
+					isSocketClosed = true
+					hasGivenUp = true
+					love.thread.getChannel("mpThreadQuitAck"):push("ok")
+					return
+				end
 				if msg == "{\"action\":\"connect\"}" then
 					hasGivenUp = false
 					Networking.connect()
