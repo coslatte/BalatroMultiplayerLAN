@@ -6,6 +6,7 @@ return {
 	["lan_broadcast_port"] = 8789,
 	["lan_default_port"] = 8788,
 	["lan_bind_ip"] = "",
+	["lan_ui_mode"] = "online",
 	["logging"] = false,
 	["misprint_display"] = true,
 	["integrations"] = {

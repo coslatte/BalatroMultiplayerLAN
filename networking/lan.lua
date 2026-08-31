@@ -20,6 +20,22 @@ MP.LAN.ADVERTISE_INTERVAL = 1.0 -- seconds
 MP.LAN.DISCOVERY_TIMEOUT = 4.0
 function MP.LAN.get_default_port() return lan_cfg_port() end
 
+-- UI mode toggle: "online" | "lan" — controls Play menu grouping
+function MP.LAN.get_ui_mode()
+	local cfg = SMODS and SMODS.Mods and SMODS.Mods["Multiplayer"] and SMODS.Mods["Multiplayer"].config
+	if cfg and (cfg.lan_ui_mode == "lan" or cfg.lan_ui_mode == "online") then
+		return cfg.lan_ui_mode
+	end
+	return "online"
+end
+function MP.LAN.set_ui_mode(mode)
+	if mode ~= "lan" and mode ~= "online" then return end
+	if SMODS and SMODS.Mods and SMODS.Mods["Multiplayer"] and SMODS.Mods["Multiplayer"].config then
+		SMODS.Mods["Multiplayer"].config.lan_ui_mode = mode
+		pcall(function() SMODS.save_mod_config(SMODS.Mods["Multiplayer"]) end)
+	end
+end
+
 MP.LAN._mode = nil -- "host" | "join" | nil
 MP.LAN._host_ip = nil
 MP.LAN._advertiser = nil -- udp socket for broadcast
