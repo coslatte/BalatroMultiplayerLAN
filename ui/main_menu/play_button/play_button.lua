@@ -2,8 +2,23 @@ function G.FUNCS.toggle_lan_mode(e)
 	local cur = MP.LAN.get_ui_mode()
 	local nxt = cur == "lan" and "online" or "lan"
 	MP.LAN.set_ui_mode(nxt)
+	-- Limpiar estado de red al cambiar de dominio para no mezclar Online<->LAN
+	if nxt == "online" then
+		-- Salir de modo LAN: detener advertise/discovery y restaurar online si estaba en IP LAN
+		pcall(function() MP.LAN.stop() end)
+		if MP.SERVER and MP.SERVER.is_running() then MP.SERVER.stop() end
+		-- Si el server_url es una IP LAN, volver al online por defecto
+		local cfg = SMODS and SMODS.Mods and SMODS.Mods["Multiplayer"] and SMODS.Mods["Multiplayer"].config
+		if cfg and cfg.server_url and cfg.server_url:match("^%d+%.%d+%.%d+%.%d+$") then
+			MP.LAN.restore_online_server()
+			MP.LAN.connect_to_host("balatro.virtualized.dev", 8788)
+		end
+	else
+		-- Entrar a LAN: asegurar discovery detenido hasta que el usuario elija Host/Join
+		pcall(function() MP.LAN.stop() end)
+		if MP.SERVER and MP.SERVER.is_running() then MP.SERVER.stop() end
+	end
 	if G.STAGE == G.STAGES.MAIN_MENU then
-		-- refresh the Play menu in place
 		if G.OVERLAY_MENU then G.FUNCS.exit_overlay_menu() end
 		G.FUNCS.overlay_menu({ definition = G.UIDEF.override_main_menu_play_button() })
 	end

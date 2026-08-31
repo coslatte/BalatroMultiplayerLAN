@@ -502,27 +502,39 @@ local function wrap_lan_actions()
 		return orig_join(code)
 	end
 	function MP.ACTIONS.leave_lobby()
+		local was_lan = MP.LAN.is_active() or MP.LAN._offline or (MP.SERVER and MP.SERVER._lan_started)
 		if MP.LAN._offline then
-			-- offline: clean locally, don't send to server (would crash if not connected)
 			MP.LAN.leave_offline_lobby()
 			pcall(function() MP.UI.update_connection_status() end)
-			-- also clear main menu UI safely
 			pcall(function()
 				if G.MAIN_MENU_UI then G.MAIN_MENU_UI:remove() end
 				if G.STAGE == G.STAGES.MAIN_MENU then set_main_menu_UI() end
 			end)
 			return
 		end
-		return orig_leave()
+		local ret = orig_leave()
+		-- Apagar sala LAN correctamente: detener advertise/discovery para que no quede rota
+		-- con usuarios fantasma y evitar que el mismo jugador se una 2 veces a la misma sala
+		if was_lan then
+			pcall(function() MP.LAN.stop() end)
+			-- Si el server embebido quedó sin lobbies, se auto-detiene via on_lobby_destroyed;
+			-- si aún está corriendo pero sin lobby local, limpiamos estado de lobby para re-entrada limpia
+			if MP.LOBBY and MP.LOBBY.code == nil then
+				MP.LAN._host_ip = nil
+				MP.LAN._creating = nil
+				MP.LAN._suppress_error = nil
+			end
+		end
+		return ret
 	end
 	-- also wrap G.FUNCS.lobby_leave for the UI button path
 	if G.FUNCS and G.FUNCS.lobby_leave and not MP.LAN._lobby_leave_wrapped then
 		MP.LAN._lobby_leave_wrapped = true
 		local orig_ui_leave = G.FUNCS.lobby_leave
 		function G.FUNCS.lobby_leave(e)
+			local was_lan = MP.LAN.is_active() or MP.LAN._offline or (MP.SERVER and MP.SERVER._lan_started)
 			if MP.LAN._offline then
 				MP.LAN.leave_offline_lobby()
-				-- mimic original offline path without server call
 				if G.STAGE ~= G.STAGES.MAIN_MENU then
 					G.STATE = G.STATES.MENU
 				else
@@ -534,7 +546,16 @@ local function wrap_lan_actions()
 				MP.UI.update_connection_status()
 				return
 			end
-			return orig_ui_leave(e)
+			local ret = orig_ui_leave(e)
+			if was_lan then
+				pcall(function() MP.LAN.stop() end)
+				if MP.LOBBY and MP.LOBBY.code == nil then
+					MP.LAN._host_ip = nil
+					MP.LAN._creating = nil
+					MP.LAN._suppress_error = nil
+				end
+			end
+			return ret
 		end
 	end
 end
